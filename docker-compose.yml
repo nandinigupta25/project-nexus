@@ -1,0 +1,108 @@
+version: '3.9'
+
+services:
+  # ─── MySQL Database ───────────────────────────────────────────
+  db:
+    image: mysql:8.2
+    container_name: nexus-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: project_nexus
+      MYSQL_USER: ${MYSQL_USER:-nexus}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-nexuspassword}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - nexus-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  # ─── Spring Boot Backend ──────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nexus-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/project_nexus?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true
+      DB_USERNAME: ${MYSQL_USER:-nexus}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-nexuspassword}
+      JWT_SECRET: ${JWT_SECRET:-NexusProjectManagement2024SecretKeyForJWTTokenGenerationMustBeLongEnough256Bits}
+      CORS_ORIGINS: http://localhost:80,http://localhost:3000
+      UPLOAD_DIR: /app/uploads
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILE:-default}
+    ports:
+      - "8080:8080"
+    volumes:
+      - upload_data:/app/uploads
+      - ./logs:/app/logs
+    networks:
+      - nexus-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/api/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ─── React Frontend ───────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nexus-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    networks:
+      - nexus-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ─── phpMyAdmin (Dev only) ────────────────────────────────────
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: nexus-phpmyadmin
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+    ports:
+      - "8081:80"
+    networks:
+      - nexus-network
+    profiles:
+      - dev
+
+volumes:
+  mysql_data:
+    driver: local
+  upload_data:
+    driver: local
+
+networks:
+  nexus-network:
+    driver: bridge
