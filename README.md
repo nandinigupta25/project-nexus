@@ -1,5 +1,11 @@
 # 🚀 Project Nexus — Project Management Dashboard
 
+\# Intern Details
+
+\- \*\*Intern ID:\*\* CTTS095
+
+\- \*\*Name:\*\* Nandini Gupta
+
 A production-ready, full-stack project management platform built with **Java 21 + Spring Boot 3** on the backend and **React + Vite + Tailwind CSS** on the frontend.
 
 ---
